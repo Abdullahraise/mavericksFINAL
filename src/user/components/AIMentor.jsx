@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import '../../analytics/components/chat-styles.css';
-import { FaLightbulb, FaCode, FaRobot } from 'react-icons/fa';
+import { FaLightbulb, FaCode, FaRobot, FaBookOpen, FaLaptopCode, FaGraduationCap, FaBrain } from 'react-icons/fa';
 
 export default function AIMentor({ userProfile }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [activeCategory, setActiveCategory] = useState('general');
   const messagesEndRef = useRef(null);
 
   // Load previous messages from localStorage
@@ -130,29 +131,145 @@ export default function AIMentor({ userProfile }) {
     setMessages([
       {
         sender: 'ai',
-        text: 'Chat history cleared. How else can I help you with your learning journey?'
+        text: 'Chat history cleared. How else can I help you with your learning journey?',
+        type: 'text'
       }
     ]);
     localStorage.removeItem('mentor_chat_history');
   };
+  
+  const exportChat = () => {
+    // Create a text version of the chat
+    const chatText = messages.map(msg => {
+      const sender = msg.sender === 'user' ? 'You' : 'AI Mentor';
+      if (msg.type === 'code') {
+        return `${sender}:\n${msg.text}\n\n\`\`\`${msg.language}\n${msg.code}\n\`\`\`\n`;
+      } else {
+        return `${sender}: ${msg.text}\n`;
+      }
+    }).join('\n');
+    
+    // Create a blob and download link
+    const blob = new Blob([chatText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-mentor-chat.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  
+  const handleCodeUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const code = event.target.result;
+      const fileExtension = file.name.split('.').pop().toLowerCase();
+      
+      // Map file extensions to language names
+      const languageMap = {
+        'js': 'javascript',
+        'py': 'python',
+        'java': 'java',
+        'html': 'html',
+        'css': 'css',
+        'cpp': 'cpp',
+        'c': 'c',
+        'cs': 'csharp',
+        'go': 'go',
+        'rb': 'ruby',
+        'php': 'php',
+        'ts': 'typescript',
+        'jsx': 'jsx',
+        'tsx': 'tsx',
+      };
+      
+      const language = languageMap[fileExtension] || 'plaintext';
+      
+      // Add the code as a user message
+      const userMessage = { 
+        sender: 'user', 
+        text: `I've uploaded a ${language} file: ${file.name}`, 
+        type: 'code',
+        language: language,
+        code: code
+      };
+      
+      setMessages(prev => [...prev, userMessage]);
+      
+      // Simulate AI analyzing the code
+      setLoading(true);
+      setTimeout(() => {
+        const aiResponse = {
+          sender: 'ai',
+          text: `I've analyzed your ${language} code. Here are some observations:`,
+          type: 'text'
+        };
+        
+        setMessages(prev => [...prev, aiResponse]);
+        setLoading(false);
+        
+        // Generate new suggestions based on code upload
+        setSuggestions([
+          'Explain this code',
+          'Optimize this code',
+          'Find bugs in this code',
+          'Add documentation'
+        ]);
+      }, 1500);
+    };
+    
+    reader.readAsText(file);
+    
+    // Reset the file input
+    e.target.value = null;
+  };
 
   // Generate initial chat suggestions based on user profile
   const generateInitialSuggestions = (userProfile) => {
-    const initialSuggestions = [
-      'What skills should I improve next?',
-      'Recommend learning resources',
-      'How do I prepare for a technical interview?'
-    ];
+    const categoryMap = {
+      general: [
+        'What skills should I improve next?',
+        'Recommend learning resources',
+        'How do I prepare for a technical interview?'
+      ],
+      coding: [
+        'Show me a code example',
+        'Explain a coding concept',
+        'Debug my code'
+      ],
+      career: [
+        'Resume improvement tips',
+        'Portfolio project ideas',
+        'Industry trends'
+      ],
+      learning: [
+        'Create a study plan',
+        'Recommended courses',
+        'Learning strategies'
+      ]
+    };
     
     // Add personalized suggestions if user has skills
     if (userProfile?.skills?.length > 0) {
       const topSkill = userProfile.skills[0];
-      initialSuggestions.push(`Help me advance in ${topSkill}`);
-      initialSuggestions.push(`Project ideas using ${topSkill}`);
+      categoryMap.general.push(`Help me advance in ${topSkill}`);
+      categoryMap.coding.push(`Project ideas using ${topSkill}`);
     }
     
-    setSuggestions(initialSuggestions);
+    setSuggestions(categoryMap[activeCategory] || categoryMap.general);
   };
+  
+  // Update suggestions when category changes
+  useEffect(() => {
+    if (userProfile) {
+      generateInitialSuggestions(userProfile);
+    }
+  }, [activeCategory, userProfile]);
   
   // Function to generate contextual responses based on user profile and input
   const generateMentorResponse = (input, userProfile) => {
@@ -308,12 +425,57 @@ console.log(fibonacci(10));`;
           <FaRobot className="mentor-icon" />
           <h3 className="chatbox-title">AI Learning Mentor</h3>
         </div>
-        {messages.length > 1 && (
-          <button onClick={clearChat} className="clear-chat-btn">
-            Clear Chat
-          </button>
-        )}
+        <div className="chatbox-actions">
+          {messages.length > 1 && (
+            <>
+              <button onClick={clearChat} className="clear-chat-btn">
+                Clear Chat
+              </button>
+              <button onClick={exportChat} className="export-chat-btn">
+                Export Chat
+              </button>
+              <label className="upload-code-btn">
+                <input 
+                  type="file" 
+                  accept=".js,.py,.java,.html,.css,.cpp,.c,.cs,.go,.rb,.php,.ts,.jsx,.tsx" 
+                  onChange={handleCodeUpload} 
+                  style={{ display: 'none' }} 
+                />
+                Upload Code
+              </label>
+            </>
+          )}
+        </div>
       </div>
+      
+      {/* Category selector */}
+      <div className="category-selector">
+        <button 
+          className={`category-btn ${activeCategory === 'general' ? 'active' : ''}`}
+          onClick={() => setActiveCategory('general')}
+        >
+          <FaBrain /> General
+        </button>
+        <button 
+          className={`category-btn ${activeCategory === 'coding' ? 'active' : ''}`}
+          onClick={() => setActiveCategory('coding')}
+        >
+          <FaCode /> Coding
+        </button>
+        <button 
+          className={`category-btn ${activeCategory === 'career' ? 'active' : ''}`}
+          onClick={() => setActiveCategory('career')}
+        >
+          <FaGraduationCap /> Career
+        </button>
+        <button 
+          className={`category-btn ${activeCategory === 'learning' ? 'active' : ''}`}
+          onClick={() => setActiveCategory('learning')}
+        >
+          <FaBookOpen /> Learning
+        </button>
+      </div>
+      
       <div className="chatbox-messages">
         {messages.map((message, index) => (
           <div

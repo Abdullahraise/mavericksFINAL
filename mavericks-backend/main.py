@@ -196,13 +196,13 @@ def generate_assessment_with_cohere(skills: List[str], difficulty: str = "interm
     try:
         print(f"🤖 Generating AI assessment for {len(skills)} skills...")
         prompt = f"""
-        Create a technical assessment for the following skills: {', '.join(skills)}
+        Create a comprehensive technical assessment for the following skills: {', '.join(skills)}
         Difficulty level: {difficulty}
         
-        Generate 5 multiple choice questions (1 question per skill) with the following format:
+        Generate a SINGLE assessment with EXACTLY 2 questions per skill (total of {len(skills)*2} questions) with the following format:
         {{
             "assessment_id": "unique_id_here",
-            "title": "Technical Skills Assessment",
+            "title": "Comprehensive Technical Skills Assessment",
             "difficulty": "{difficulty}",
             "skills_tested": {skills},
             "questions": [
@@ -217,7 +217,14 @@ def generate_assessment_with_cohere(skills: List[str], difficulty: str = "interm
             ]
         }}
         
-        Make questions practical and relevant to real-world scenarios. Return ONLY the JSON, no additional text.
+        IMPORTANT REQUIREMENTS:
+        1. Create EXACTLY 2 questions for EACH skill in the skills list
+        2. Make questions practical and relevant to real-world scenarios
+        3. Ensure questions test different aspects of each skill (basic and advanced)
+        4. Include a mix of difficulty levels to properly assess skill proficiency
+        5. The assessment must be able to categorize skills as STRONG (score >= 80%), AVERAGE (score 50-79%), or WEAK (score < 50%)
+        
+        Return ONLY the JSON, no additional text.
         """
         
         response = cohere_client.generate(

@@ -3,19 +3,15 @@ import SkillAssessment from "./SkillAssessment";
 import ProgressStepper from "./ProgressStepper";
 import VideoRecommendations from "./VideoRecommendations";
 import SkillProgressTracker from "./SkillProgressTracker";
-import { uploadResume, updateUserProfile } from "../../firebaseConfig";
+import { uploadResume, updateUserProfile, getUserProfile } from "../../firebaseConfig";
 
 export default function ResumeUploader({ onResumeUpload }) {
   const [files, setFiles] = useState([]);
-  const [profiles, setProfiles] = useState(() => {
-    const savedProfiles = localStorage.getItem("resumeProfiles");
-    return savedProfiles ? JSON.parse(savedProfiles) : [];
-  });
+  // Don't load resume profiles from localStorage, only initialize with empty array
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [resumeUploaded, setResumeUploaded] = useState(() => {
-    return localStorage.getItem("resumeUploaded") === "true";
-  });
+  const [resumeUploaded, setResumeUploaded] = useState(false);
   const [skillsExtracted, setSkillsExtracted] = useState(() => {
     return localStorage.getItem("skillsExtracted") === "true";
   });
@@ -39,31 +35,102 @@ export default function ResumeUploader({ onResumeUpload }) {
     { label: "Video Learning", completed: completedVideos.length > 0 }
   ];
   
-  // Load saved data from localStorage on component mount
+  // Load saved data from Firebase and localStorage on component mount
   useEffect(() => {
-    const savedAssessments = localStorage.getItem("assessmentResults");
-    if (savedAssessments) {
-      setAssessmentResults(JSON.parse(savedAssessments));
-    }
-    
-    const savedVideos = localStorage.getItem("completedVideos");
-    if (savedVideos) {
-      setCompletedVideos(JSON.parse(savedVideos));
-    }
-    
-    // If there's a profile with skills, update the profiles state
-    const userProfile = localStorage.getItem("userProfile");
-    if (userProfile) {
-      const parsedProfile = JSON.parse(userProfile);
-      if (parsedProfile.skills && parsedProfile.skills.length > 0) {
-        setProfiles([{
-          filename: "Saved Profile",
-          skills: parsedProfile.skills
-        }]);
-        setSkillsExtracted(true);
-        setResumeUploaded(true);
+    const loadUserData = async () => {
+      try {
+        // Get current user from localStorage if available
+        const userString = localStorage.getItem("user");
+        const user = userString ? JSON.parse(userString) : null;
+        
+        if (user && user.uid) {
+          // Get user profile from Firebase
+          const userProfile = await getUserProfile(user.uid);
+          
+          if (userProfile) {
+            // Check if resume is already uploaded in session data
+            if (userProfile.sessionData && userProfile.sessionData.resumeUploaded) {
+              setResumeUploaded(true);
+              localStorage.setItem("resumeUploaded", "true");
+              
+              // If resume has a filename, add it to profiles
+              if (userProfile.sessionData.resumeFileName) {
+                setProfiles([{
+                  filename: userProfile.sessionData.resumeFileName,
+                  skills: userProfile.skills || []
+                }]);
+              } else if (userProfile.skills && userProfile.skills.length > 0) {
+                setProfiles([{
+                  filename: "Saved Profile",
+                  skills: userProfile.skills
+                }]);
+              }
+              
+              if (userProfile.skills && userProfile.skills.length > 0) {
+                setSkillsExtracted(true);
+                localStorage.setItem("skillsExtracted", "true");
+              }
+            }
+            
+            // Load assessment results if available
+            if (userProfile.assessmentResults) {
+              setAssessmentResults(userProfile.assessmentResults);
+              localStorage.setItem("assessmentResults", JSON.stringify(userProfile.assessmentResults));
+            } else {
+              // Fallback to localStorage
+              const savedAssessments = localStorage.getItem("assessmentResults");
+              if (savedAssessments) {
+                setAssessmentResults(JSON.parse(savedAssessments));
+              }
+            }
+            
+            // Load completed videos if available
+            if (userProfile.completedVideos) {
+              setCompletedVideos(userProfile.completedVideos);
+              localStorage.setItem("completedVideos", JSON.stringify(userProfile.completedVideos));
+            } else {
+              // Fallback to localStorage
+              const savedVideos = localStorage.getItem("completedVideos");
+              if (savedVideos) {
+                setCompletedVideos(JSON.parse(savedVideos));
+              }
+            }
+          }
+        } else {
+          // No logged in user, fallback to localStorage
+          const savedAssessments = localStorage.getItem("assessmentResults");
+          if (savedAssessments) {
+            setAssessmentResults(JSON.parse(savedAssessments));
+          }
+          
+          const savedVideos = localStorage.getItem("completedVideos");
+          if (savedVideos) {
+            setCompletedVideos(JSON.parse(savedVideos));
+          }
+          
+          // If there's a profile with skills in localStorage, use it
+          const localUserProfile = localStorage.getItem("userProfile");
+          if (localUserProfile) {
+            const parsedProfile = JSON.parse(localUserProfile);
+            if (parsedProfile.skills && parsedProfile.skills.length > 0) {
+              setProfiles([{
+                filename: "Saved Profile",
+                skills: parsedProfile.skills
+              }]);
+              setSkillsExtracted(true);
+              setResumeUploaded(localStorage.getItem("resumeUploaded") === "true");
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error loading user data:", error);
+        // Fallback to localStorage if Firebase fails
+        const resumeStatus = localStorage.getItem("resumeUploaded") === "true";
+        setResumeUploaded(resumeStatus);
       }
-    }
+    };
+    
+    loadUserData();
   }, []);
 
   const handleFileChange = (e) => {
@@ -77,17 +144,19 @@ export default function ResumeUploader({ onResumeUpload }) {
       return;
     }
     setLoading(true);
-    setResumeUploaded(true);
 
     try {
       const uploadedProfiles = [];
+      
+      // Get current user from localStorage if available
+      const userString = localStorage.getItem("user");
+      const user = userString ? JSON.parse(userString) : null;
+      const userId = user?.uid || "guest-" + Date.now(); // Use a timestamp as fallback ID
 
       for (const file of files) {
-        // Upload resume to storage if needed
-        try {
-          await uploadResume(file);
-        } catch (err) {
-          console.log("Resume upload to storage skipped or failed:", err);
+        // Upload resume to Firebase Storage (this now updates session data)
+        if (user) {
+          await uploadResume(file, userId);
         }
 
         const formData = new FormData();
@@ -99,146 +168,160 @@ export default function ResumeUploader({ onResumeUpload }) {
         });
 
         const data = await res.json();
-
-        let skills = [];
-        if (Array.isArray(data.skills)) {
-          skills = data.skills;
+        
+        if (data.skills && data.skills.length > 0) {
+          uploadedProfiles.push({
+            filename: file.name,
+            skills: data.skills
+          });
+          
+          // Save to localStorage for fallback
+          localStorage.setItem("userProfile", JSON.stringify({
+            skills: data.skills,
+            resumeFileName: file.name,
+            resumeUploaded: true,
+            uploadDate: new Date().toISOString()
+          }));
+          
+          // Update user profile in Firebase if user is logged in
+          if (user) {
+            await updateUserProfile(userId, { 
+              skills: data.skills,
+              'sessionData.skillsExtracted': true
+            });
+          }
         }
-
-        uploadedProfiles.push({
-          filename: data.filename || file.name,
-          skills,
-        });
       }
-
+      
       setProfiles(uploadedProfiles);
       setSkillsExtracted(true);
-
-      if (uploadedProfiles.length > 0) {
-        const allSkills = uploadedProfiles.flatMap(profile => profile.skills);
-        const uniqueSkills = [...new Set(allSkills)];
-
-        try {
-          updateUserProfile({
-            skills: uniqueSkills,
-            resumeUploaded: true,
-            skillsExtracted: true
-          });
-        } catch (err) {
-          console.log("User profile update skipped or failed:", err);
-        }
-        
-        // Call the onResumeUpload callback with the file data
-        if (onResumeUpload) {
-          onResumeUpload({
-            skills: uniqueSkills,
-            filename: uploadedProfiles[0].filename
-          });
-        }
+      setResumeUploaded(true);
+      localStorage.setItem("skillsExtracted", "true");
+      localStorage.setItem("resumeUploaded", "true");
+      
+      if (onResumeUpload) {
+        onResumeUpload(uploadedProfiles);
       }
     } catch (err) {
-      setError("Upload failed, check console");
       console.error("Error uploading resume:", err);
+      setError("Failed to upload resume. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Save state to localStorage when it changes
-  useEffect(() => {
-    if (assessmentResults.length > 0) {
-      localStorage.setItem("assessmentResults", JSON.stringify(assessmentResults));
-    }
-  }, [assessmentResults]);
-
-  useEffect(() => {
-    if (completedVideos.length > 0) {
-      localStorage.setItem("completedVideos", JSON.stringify(completedVideos));
-    }
-  }, [completedVideos]);
-  
-  useEffect(() => {
-    if (profiles.length > 0) {
-      localStorage.setItem("resumeProfiles", JSON.stringify(profiles));
-    }
-  }, [profiles]);
-  
-  useEffect(() => {
-    localStorage.setItem("resumeUploaded", resumeUploaded);
-  }, [resumeUploaded]);
-  
-  useEffect(() => {
-    localStorage.setItem("skillsExtracted", skillsExtracted);
-  }, [skillsExtracted]);
-  
-  useEffect(() => {
-    if (weakSkills.length > 0) {
-      localStorage.setItem("weakSkills", JSON.stringify(weakSkills));
-    }
-  }, [weakSkills]);
-  
-  useEffect(() => {
-    localStorage.setItem("resumeActiveTab", activeTab);
-  }, [activeTab]);
-
-  const handleAssessmentComplete = (result) => {
-    const newResult = {
-      ...result,
-      timestamp: new Date().toISOString(),
-      id: Date.now()
-    };
-
-    setAssessmentResults(prev => {
-      // Replace existing result for same skill or add new one
-      const filtered = prev.filter(r => r.skill !== result.skill);
-      return [...filtered, newResult];
-    });
-
-    // Extract weak skills for video recommendations
-    if (result.score < 40) {
-      // If score is below 40%, add the skill to weak skills list
-      console.log("Score below 40% detected:", result.skill, result.score);
-      setWeakSkills(prev => {
-        const newWeakSkills = [...prev];
-        if (!newWeakSkills.includes(result.skill)) {
-          newWeakSkills.push(result.skill);
-          console.log("Added to weak skills:", result.skill);
-        }
-        return newWeakSkills;
-      });
-    }
-
-    setShowAssessment(false);
-    setCurrentAssessment(null);
-    setActiveTab("videos"); // Automatically switch to videos tab after assessment
-  };
-
   const handleStartAssessment = (skill) => {
     setCurrentAssessment(skill);
     setShowAssessment(true);
+    localStorage.setItem("currentAssessment", skill);
+  };
+
+  const handleStartComprehensiveAssessment = () => {
+    setCurrentAssessment("comprehensive");
+    setShowAssessment(true);
+    localStorage.setItem("currentAssessment", "comprehensive");
+  };
+
+  const handleAssessmentComplete = (result) => {
+    setShowAssessment(false);
+    
+    // Handle comprehensive assessment results
+    if (result.isComprehensive) {
+      // Process each skill's score in the comprehensive result
+      const updatedResults = [...assessmentResults];
+      const newWeakSkills = [...weakSkills];
+      
+      Object.entries(result.skillScores).forEach(([skill, score]) => {
+        // Find if we already have a result for this skill
+        const existingIndex = updatedResults.findIndex(r => r.skill === skill);
+        
+        if (existingIndex >= 0) {
+          // Update existing result
+          updatedResults[existingIndex] = {
+            ...updatedResults[existingIndex],
+            score: score,
+            date: new Date().toISOString()
+          };
+        } else {
+          // Add new result
+          updatedResults.push({
+            skill,
+            score,
+            date: new Date().toISOString()
+          });
+        }
+        
+        // Check if this is a weak skill (score < 50%)
+        if (score < 50 && !newWeakSkills.includes(skill)) {
+          newWeakSkills.push(skill);
+        }
+      });
+      
+      setAssessmentResults(updatedResults);
+      setWeakSkills(newWeakSkills);
+      
+      // Save to localStorage
+      localStorage.setItem("assessmentResults", JSON.stringify(updatedResults));
+      localStorage.setItem("weakSkills", JSON.stringify(newWeakSkills));
+      
+      // Switch to videos tab if we have weak skills
+      if (newWeakSkills.length > 0) {
+        setActiveTab("videos");
+        localStorage.setItem("resumeActiveTab", "videos");
+      }
+    } else {
+      // Handle single skill assessment (original logic)
+      const updatedResults = [...assessmentResults];
+      const existingIndex = updatedResults.findIndex(r => r.skill === result.skill);
+      
+      if (existingIndex >= 0) {
+        updatedResults[existingIndex] = result;
+      } else {
+        updatedResults.push(result);
+      }
+      
+      setAssessmentResults(updatedResults);
+      
+      // Check if this is a weak skill (score < 40%)
+      const newWeakSkills = [...weakSkills];
+      if (result.score < 40 && !newWeakSkills.includes(result.skill)) {
+        newWeakSkills.push(result.skill);
+        setWeakSkills(newWeakSkills);
+      }
+      
+      // Save to localStorage
+      localStorage.setItem("assessmentResults", JSON.stringify(updatedResults));
+      localStorage.setItem("weakSkills", JSON.stringify(newWeakSkills));
+      
+      // Switch to videos tab if this is a weak skill
+      if (result.score < 40) {
+        setActiveTab("videos");
+        localStorage.setItem("resumeActiveTab", "videos");
+      }
+    }
   };
 
   const handleRetakeAssessment = (skill) => {
     handleStartAssessment(skill);
   };
 
-  const handleVideoComplete = (video) => {
-    setCompletedVideos(prev => {
-      const exists = prev.find(v => v.id === video.id);
-      if (!exists) {
-        return [...prev, { ...video, completedAt: new Date().toISOString() }];
-      }
-      return prev;
-    });
+  const handleVideoComplete = (videoId) => {
+    const updatedVideos = [...completedVideos, videoId];
+    setCompletedVideos(updatedVideos);
+    localStorage.setItem("completedVideos", JSON.stringify(updatedVideos));
   };
 
   const getCurrentStep = () => {
     if (!resumeUploaded) return 0;
     if (!skillsExtracted) return 1;
     if (assessmentResults.length === 0) return 2;
-    if (completedVideos.length === 0) return 3;
-    return 4;
+    return 3;
   };
+
+  // Save active tab to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem("resumeActiveTab", activeTab);
+  }, [activeTab]);
 
   return (
     <div className="p-6 bg-white rounded shadow">
@@ -323,6 +406,17 @@ export default function ResumeUploader({ onResumeUpload }) {
               {profiles.map((profile, idx) => (
                 <div key={idx} className="mb-4">
                   <p className="font-medium">{profile.filename}</p>
+                  <div className="flex justify-end mb-2">
+                    <button
+                      onClick={() => {
+                        handleStartComprehensiveAssessment();
+                        setActiveTab("assessment");
+                      }}
+                      className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium"
+                    >
+                      Start Comprehensive Assessment
+                    </button>
+                  </div>
                   <ul className="list-disc ml-6">
                     {profile.skills.map((skill, i) => (
                       <li key={i} className="flex items-center justify-between">
@@ -334,7 +428,7 @@ export default function ResumeUploader({ onResumeUpload }) {
                           }}
                           className="ml-4 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
-                          Assess
+                          Assess Individual Skill
                         </button>
                       </li>
                     ))}
@@ -360,67 +454,89 @@ export default function ResumeUploader({ onResumeUpload }) {
         <div>
           <h2 className="text-xl font-bold mb-4">Skill Assessment</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {profiles.flatMap(profile => profile.skills).map((skill) => {
-              const existingResult = assessmentResults.find(r => r.skill === skill);
-              const isCompleted = !!existingResult;
-              const score = existingResult?.score || 0;
-
-              return (
-                <div
-                  key={skill}
-                  className={`border rounded-lg p-6 transition-all duration-200 ${
-                    isCompleted
-                      ? "border-green-200 bg-green-50"
-                      : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-md"
-                  }`}
+          {showAssessment && currentAssessment ? (
+            <SkillAssessment 
+              skill={currentAssessment} 
+              onComplete={handleAssessmentComplete} 
+              onClose={() => setShowAssessment(false)} 
+            />
+          ) : (
+            <>
+              <div className="mb-6 p-4 border border-blue-200 bg-blue-50 rounded-lg">
+                <h3 className="font-semibold text-lg mb-2">Comprehensive Assessment</h3>
+                <p className="text-gray-700 mb-3">Take a single assessment covering all your skills with two questions per skill.</p>
+                <button
+                  onClick={handleStartComprehensiveAssessment}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors font-medium"
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-semibold text-gray-800">{skill}</h4>
-                    {isCompleted && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {score}%
-                      </span>
-                    )}
-                  </div>
+                  Start Comprehensive Assessment
+                </button>
+              </div>
+              
+              <h3 className="font-semibold text-lg mb-3">Individual Skill Assessments</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {profiles.flatMap(profile => profile.skills).map((skill) => {
+                  const existingResult = assessmentResults.find(r => r.skill === skill);
+                  const isCompleted = !!existingResult;
+                  const score = existingResult?.score || 0;
 
-                  {isCompleted ? (
-                    <div className="space-y-3">
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full ${
-                            score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-500"
-                          }`}
-                          style={{ width: `${score}%` }}
-                        ></div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleRetakeAssessment(skill)}
-                          className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                        >
-                          Retake
-                        </button>
-                        <button
-                          onClick={() => setActiveTab("progress")}
-                          className="flex-1 px-3 py-2 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
-                        >
-                          View Details
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => handleStartAssessment(skill)}
-                      className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors font-medium"
+                  return (
+                    <div
+                      key={skill}
+                      className={`border rounded-lg p-6 transition-all duration-200 ${
+                        isCompleted
+                          ? "border-green-200 bg-green-50"
+                          : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-md"
+                      }`}
                     >
-                      Start Assessment
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-semibold text-gray-800">{skill}</h4>
+                        {isCompleted && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            {score}%
+                          </span>
+                        )}
+                      </div>
+
+                      {isCompleted ? (
+                        <div className="space-y-3">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full ${
+                                score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-500"
+                              }`}
+                              style={{ width: `${score}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleRetakeAssessment(skill)}
+                              className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                            >
+                              Retake
+                            </button>
+                            <button
+                              onClick={() => setActiveTab("progress")}
+                              className="flex-1 px-3 py-2 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleStartAssessment(skill)}
+                          className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors font-medium"
+                        >
+                          Start Assessment
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
           
           {assessmentResults.length > 0 && weakSkills.length > 0 && (
             <button
@@ -459,24 +575,9 @@ export default function ResumeUploader({ onResumeUpload }) {
           <h2 className="text-xl font-bold mb-4">Skill Progress Tracker</h2>
           <SkillProgressTracker
             assessmentResults={assessmentResults}
-            onRetakeAssessment={(skill) => {
-              handleRetakeAssessment(skill);
-              setActiveTab("assessment");
-            }}
+            completedVideos={completedVideos}
           />
         </div>
-      )}
-
-      {/* Assessment Modal */}
-      {showAssessment && currentAssessment && (
-        <SkillAssessment
-          skill={currentAssessment}
-          onComplete={handleAssessmentComplete}
-          onClose={() => {
-            setShowAssessment(false);
-            setCurrentAssessment(null);
-          }}
-        />
       )}
     </div>
   );

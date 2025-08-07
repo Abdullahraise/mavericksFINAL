@@ -1,5 +1,7 @@
 # Skill Assessment & Video Recommendation Features
 
+> **Update**: Fixed skill extraction functionality to properly handle resume uploads in different formats.
+
 ## Overview
 
 This update adds comprehensive skill assessment capabilities with video recommendations and progress tracking to the Mavericks Coding Platform. Users can now take assessments, receive personalized video recommendations for weak skills, and track their progress over time.
@@ -183,4 +185,4 @@ The system requires a backend API with these endpoints:
 - `POST /generate_assessment`: Generate assessment questions
 - `POST /submit_assessment`: Submit and score assessment answers
 
-The backend should return assessment data in the expected format with questions, scoring, and recommendations. 
+The backend should return assessment data in the expected format with questions, scoring, and recommendations.

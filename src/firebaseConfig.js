@@ -15,6 +15,17 @@ const firebaseConfig = {
   measurementId: "G-D91MKV9LPQ"
 };
 
+// Configure Firebase persistence for session management
+// This enables session persistence across page refreshes and browser restarts
+const PERSISTENCE_TYPE = {
+  LOCAL: 'LOCAL',     // Persists even when browser is closed
+  SESSION: 'SESSION', // Persists until browser is closed
+  NONE: 'NONE'        // No persistence (session ends when page is closed)
+};
+
+// Set default persistence to LOCAL for better user experience
+const DEFAULT_PERSISTENCE = PERSISTENCE_TYPE.LOCAL;
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -66,9 +77,78 @@ export const logout = async () => {
   }
 };
 
+import { setPersistence, browserLocalPersistence, browserSessionPersistence, inMemoryPersistence } from 'firebase/auth';
+
+// Set persistence type for Firebase Auth
+export const setAuthPersistence = async (persistenceType = DEFAULT_PERSISTENCE) => {
+  try {
+    let persistenceMode;
+    
+    switch (persistenceType) {
+      case PERSISTENCE_TYPE.LOCAL:
+        persistenceMode = browserLocalPersistence;
+        break;
+      case PERSISTENCE_TYPE.SESSION:
+        persistenceMode = browserSessionPersistence;
+        break;
+      case PERSISTENCE_TYPE.NONE:
+        persistenceMode = inMemoryPersistence;
+        break;
+      default:
+        persistenceMode = browserLocalPersistence;
+    }
+    
+    await setPersistence(auth, persistenceMode);
+    return true;
+  } catch (error) {
+    console.error('Error setting auth persistence:', error);
+    return false;
+  }
+};
+
+// Enhanced auth state change listener with role verification and session management
 export const onAuthStateChange = (callback) => {
-  // Real auth state change listener
-  return onAuthStateChanged(auth, (user) => {
+  // Set persistence when auth state changes
+  setAuthPersistence();
+  
+  // Real auth state change listener with role verification
+  return onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        // Get user profile from Firestore to verify role
+        const userProfile = await getUserProfile(user.uid);
+        
+        // If user is admin@mavericks.com, ensure they have admin role
+        if (user.email === 'admin@mavericks.com') {
+          // If admin user doesn't have admin role in profile, update it
+          if (!userProfile || userProfile.role !== 'admin') {
+            await updateUserRole(user.uid, 'admin');
+          }
+          
+          // Add role to user object
+          user.role = 'admin';
+        } else {
+          // For non-admin users, use role from profile or default to 'user'
+          user.role = userProfile?.role || 'user';
+        }
+        
+        // Add session data to user object
+        if (userProfile && userProfile.sessionData) {
+          user.sessionData = userProfile.sessionData;
+          
+          // Update last active timestamp
+          await updateDoc(doc(db, 'users', user.uid), {
+            lastActive: new Date().toISOString(),
+            'sessionData.lastActive': new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error('Error verifying user role:', error);
+        // Default to user role if verification fails
+        user.role = user.email === 'admin@mavericks.com' ? 'admin' : 'user';
+      }
+    }
+    
     callback(user);
   });
 };
@@ -76,11 +156,25 @@ export const onAuthStateChange = (callback) => {
 // Firestore functions
 export const createUserProfile = async (uid, userData) => {
   try {
+    // Check if this is the admin email
+    const isAdmin = userData.email === 'admin@mavericks.com';
+    
+    // Check if user already exists
     const userRef = doc(db, 'users', uid);
+    const userDoc = await getDoc(userRef);
+    
+    // If user exists, preserve their session data
+    let existingSessionData = {};
+    if (userDoc.exists()) {
+      const existingData = userDoc.data();
+      existingSessionData = existingData.sessionData || {};
+    }
+    
+    // Create or update user profile
     await setDoc(userRef, {
       ...userData,
       createdAt: new Date().toISOString(),
-      role: 'user',
+      role: isAdmin ? 'admin' : 'user', // Set role based on email
       points: 0,
       badges: [],
       progress: {
@@ -88,10 +182,82 @@ export const createUserProfile = async (uid, userData) => {
         skillsAssessed: 0,
         videosCompleted: 0,
         hackathonsJoined: 0
+      },
+      lastLogin: new Date().toISOString(),
+      sessionData: {
+        ...existingSessionData,
+        resumeUploaded: existingSessionData.resumeUploaded || false,
+        resumeURL: existingSessionData.resumeURL || null,
+        assessmentStarted: existingSessionData.assessmentStarted || false,
+        currentStep: existingSessionData.currentStep || 'profile',
+        deviceInfo: navigator.userAgent,
+        loginHistory: [...(existingSessionData.loginHistory || []), {
+          timestamp: new Date().toISOString(),
+          device: navigator.userAgent
+        }]
       }
     });
+    
+    return userRef;
   } catch (error) {
     console.error('Error creating user profile:', error);
+    throw error;
+  }
+};
+
+// Update user role
+export const updateUserRole = async (uid, role) => {
+  try {
+    const userRef = doc(db, 'users', uid);
+    await updateDoc(userRef, { role });
+    return true;
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    throw error;
+  }
+};
+
+// Update user session data to maintain state between sessions
+export const updateUserSession = async (uid, sessionData) => {
+  try {
+    const userRef = doc(db, 'users', uid);
+    
+    // First check if user document exists
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      // Merge with existing session data to preserve important fields
+      const existingData = userDoc.data().sessionData || {};
+      
+      // Preserve resume upload status if it exists
+      if (existingData.resumeUploaded && !sessionData.resumeUploaded) {
+        sessionData.resumeUploaded = true;
+        sessionData.resumeURL = existingData.resumeURL || null;
+      }
+      
+      // Preserve assessment progress if it exists
+      if (existingData.assessmentStarted && !sessionData.assessmentStarted) {
+        sessionData.assessmentStarted = true;
+        sessionData.assessmentProgress = existingData.assessmentProgress || {};
+      }
+      
+      // Update the document with merged data
+      await updateDoc(userRef, { 
+        sessionData: { ...existingData, ...sessionData },
+        lastUpdated: new Date().toISOString()
+      });
+    } else {
+      // Create new document if it doesn't exist
+      await setDoc(userRef, {
+        sessionData,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      });
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error updating user session:', error);
     throw error;
   }
 };
@@ -125,10 +291,32 @@ export const updateUserProfile = async (uid, updates) => {
 
 export const uploadResume = async (file, uid) => {
   try {
-    const storageRef = ref(storage, `resumes/${uid}/${file.name}`);
-    await uploadBytes(storageRef, file);
-    const downloadURL = await getDownloadURL(storageRef);
-    return downloadURL;
+    // Firebase Storage uploads have been disabled
+    // Return a dummy local URL instead
+    console.log('Firebase Storage uploads disabled - returning dummy URL');
+    const dummyURL = `local://${file.name}`;
+    
+    // Update user session to mark resume as uploaded
+    const userRef = doc(db, 'users', uid);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      const sessionData = userData.sessionData || {};
+      
+      // Update session data with resume information
+      await updateDoc(userRef, {
+        sessionData: {
+          ...sessionData,
+          resumeUploaded: true,
+          resumeURL: dummyURL,
+          resumeFileName: file.name,
+          resumeUploadDate: new Date().toISOString()
+        }
+      });
+    }
+    
+    return dummyURL;
   } catch (error) {
     console.error('Error uploading resume:', error);
     throw error;

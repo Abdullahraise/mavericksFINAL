@@ -52,14 +52,57 @@ export default function SkillAssessment({ skill, onComplete, onClose }) {
       setResults(data.analysis);
       setAssessmentComplete(true);
       
-      // Call parent callback with results
-      if (onComplete) {
-        onComplete({
-          skill,
-          score: data.analysis.score,
-          results: data.analysis,
-          timeTaken: timeTaken
+      // Process results for comprehensive assessment
+      if (skill === "comprehensive") {
+        // Calculate scores for each skill based on questions
+        const skillScores = {};
+        const questions = assessment?.questions || [];
+        
+        // Group questions by skill
+        const questionsBySkill = {};
+        questions.forEach(q => {
+          if (!questionsBySkill[q.skill]) {
+            questionsBySkill[q.skill] = [];
+          }
+          questionsBySkill[q.skill].push(q);
         });
+        
+        // Calculate score for each skill
+        Object.entries(questionsBySkill).forEach(([skillName, skillQuestions]) => {
+          let correctCount = 0;
+          
+          skillQuestions.forEach(q => {
+            if (answers[q.id] === q.correct_answer) {
+              correctCount++;
+            }
+          });
+          
+          const skillScore = Math.round((correctCount / skillQuestions.length) * 100);
+          skillScores[skillName] = skillScore;
+        });
+        
+        // Add skill scores to analysis
+        data.analysis.skillScores = skillScores;
+        
+        // Call parent callback with comprehensive results
+        if (onComplete) {
+          onComplete({
+            skill: "comprehensive",
+            score: data.analysis.score,
+            results: data.analysis,
+            timeTaken: timeTaken
+          });
+        }
+      } else {
+        // Call parent callback with single skill results
+        if (onComplete) {
+          onComplete({
+            skill,
+            score: data.analysis.score,
+            results: data.analysis,
+            timeTaken: timeTaken
+          });
+        }
       }
     } catch (err) {
       setError(`Failed to submit assessment: ${err.message}`);
@@ -97,13 +140,30 @@ export default function SkillAssessment({ skill, onComplete, onClose }) {
     setError("");
     
     try {
+      // Get all skills from localStorage if this is a comprehensive assessment
+      let skillsToAssess = [];
+      
+      if (skill === "comprehensive") {
+        const userProfile = localStorage.getItem("userProfile");
+        if (userProfile) {
+          const parsedProfile = JSON.parse(userProfile);
+          skillsToAssess = parsedProfile.skills || [];
+        }
+      } else {
+        skillsToAssess = [skill];
+      }
+      
+      if (skillsToAssess.length === 0) {
+        throw new Error("No skills found to assess");
+      }
+      
       const response = await fetch("http://127.0.0.1:8002/generate_assessment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          skills: [skill],
+          skills: skillsToAssess,
           difficulty: "intermediate"
         }),
       });

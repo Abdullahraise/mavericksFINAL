@@ -1,12 +1,44 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { db } from "../../firebaseConfig";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+
 export default function RecentActivityTable() {
   const [searchTerm, setSearchTerm] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [scoreRange, setScoreRange] = useState({ min: "", max: "" });
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Enhanced activities data with all required fields
-  const activities = [
+  useEffect(() => {
+    fetchActivities();
+  }, []);
+
+  const fetchActivities = async () => {
+    setLoading(true);
+    try {
+      // Try to fetch real activities from Firestore
+      const activitiesQuery = query(
+        collection(db, 'activities'),
+        orderBy('timestamp', 'desc'),
+        limit(10)
+      );
+      
+      const activitiesSnapshot = await getDocs(activitiesQuery);
+      
+      if (!activitiesSnapshot.empty) {
+        const fetchedActivities = [];
+        activitiesSnapshot.forEach(doc => {
+          fetchedActivities.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        setActivities(fetchedActivities);
+      } else {
+        // If no real data exists, use demo data
+        setActivities([
     {
       id: 1,
       user: "John Doe",
@@ -38,7 +70,114 @@ export default function RecentActivityTable() {
           details: "5 modules recommended",
         },
       },
-    },
+    }]);
+      }
+    } catch (err) {
+      console.error('Error fetching activities:', err);
+      setError('Failed to load activity data');
+      // Fall back to demo data if fetch fails
+      setActivities([
+        {
+          id: 1,
+          user: "John Doe",
+          email: "john.doe@example.com",
+          action: "Completed JavaScript Assessment",
+          date: "21-07-2025",
+          skills: ["JavaScript", "React", "Node.js"],
+          assessmentScore: 85,
+          status: "completed",
+          progress: {
+            profileLoaded: {
+              completed: true,
+              timestamp: "2025-01-20T09:00:00Z",
+              details: "Profile created successfully",
+            },
+            assessmentCompleted: {
+              completed: true,
+              timestamp: "2025-01-21T14:30:00Z",
+              details: "Assessment took 45 minutes, Score: 85%",
+            },
+            skillsEvaluated: {
+              completed: true,
+              timestamp: "2025-01-21T15:00:00Z",
+              details: "Skills evaluated: JavaScript, React, Node.js",
+            },
+            learningPathGenerated: {
+              completed: true,
+              timestamp: "2025-01-22T10:00:00Z",
+              details: "5 modules recommended",
+            },
+          },
+        },
+        {
+          id: 2,
+          user: "Jane Smith",
+          email: "jane.smith@example.com",
+          action: "Enrolled in React Course",
+          date: "22-07-2025",
+          skills: ["Python", "Django", "Machine Learning"],
+          assessmentScore: 92,
+          status: "completed",
+          progress: {
+            profileLoaded: {
+              completed: true,
+              timestamp: "2025-01-21T11:00:00Z",
+              details: "Profile created successfully",
+            },
+            assessmentCompleted: {
+              completed: true,
+              timestamp: "2025-01-22T13:15:00Z",
+              details: "Assessment took 38 minutes, Score: 92%",
+            },
+            skillsEvaluated: {
+              completed: true,
+              timestamp: "2025-01-22T13:45:00Z",
+              details: "Skills evaluated: Python, Django, ML",
+            },
+            learningPathGenerated: {
+              completed: true,
+              timestamp: "2025-01-23T09:30:00Z",
+              details: "3 modules recommended",
+            },
+          },
+        },
+        {
+          id: 3,
+          user: "Mike Ross",
+          email: "mike.ross@example.com",
+          action: "Completed HTML & CSS Test",
+          date: "24-07-2025",
+          skills: ["HTML", "CSS", "JavaScript"],
+          assessmentScore: 78,
+          status: "in-progress",
+          progress: {
+            profileLoaded: {
+              completed: true,
+              timestamp: "2025-01-23T10:00:00Z",
+              details: "Profile created successfully",
+            },
+            assessmentCompleted: {
+              completed: true,
+              timestamp: "2025-01-24T16:20:00Z",
+              details: "Assessment took 52 minutes, Score: 78%",
+            },
+            skillsEvaluated: {
+              completed: false,
+              timestamp: null,
+              details: "Skills evaluation in progress",
+            },
+            learningPathGenerated: {
+              completed: false,
+              timestamp: null,
+              details: "Pending skills evaluation",
+            },
+          },
+        }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
     {
       id: 2,
       user: "Jane Smith",

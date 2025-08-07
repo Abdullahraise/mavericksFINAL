@@ -153,7 +153,20 @@ class ProfileAgent extends BaseAgent {
     console.log('🔍 Profile Agent: Processing user data...');
     
     // Extract skills from resume using AI
-    const skills = await this.extractSkillsFromResume(userData.resume);
+    let skills = [];
+    
+    if (userData.resume instanceof File) {
+      // If resume is a File object (from file input)
+      skills = await this.extractSkillsFromResume(userData.resume);
+    } else if (typeof userData.resume === 'string') {
+      // If resume is a string (text content)
+      const blob = new Blob([userData.resume], { type: 'text/plain' });
+      const file = new File([blob], 'resume.txt', { type: 'text/plain' });
+      skills = await this.extractSkillsFromResume(file);
+    } else {
+      console.error('Invalid resume format:', userData.resume);
+      skills = [];
+    }
     
     // Create user profile
     const profile = {
@@ -172,9 +185,13 @@ class ProfileAgent extends BaseAgent {
 
   async extractSkillsFromResume(resumeData) {
     try {
+      // Create a FormData object to properly send the file
+      const formData = new FormData();
+      formData.append('file', resumeData);
+      
       const response = await fetch('http://127.0.0.1:8002/analyze_resume', {
         method: 'POST',
-        body: resumeData
+        body: formData
       });
 
       if (!response.ok) {
@@ -631,4 +648,4 @@ class LeaderboardAgent extends BaseAgent {
 
 // Create and export singleton instance
 const agentManager = new AgentManager();
-export default agentManager; 
+export default agentManager;

@@ -4,6 +4,12 @@ export default function VideoRecommendations({ weakSkills, onVideoComplete }) {
   const [recommendedVideos, setRecommendedVideos] = useState([]);
   const [completedVideos, setCompletedVideos] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [assessmentResults, setAssessmentResults] = useState([]);
+  const [skillLevels, setSkillLevels] = useState({
+    weak: [],
+    average: [],
+    strong: []
+  });
 
   // Sample video recommendations based on weak skills
   const videoDatabase = {
@@ -131,12 +137,41 @@ export default function VideoRecommendations({ weakSkills, onVideoComplete }) {
     ]
   };
 
+  // Load assessment results from localStorage
   useEffect(() => {
+    const savedResults = localStorage.getItem('assessmentResults');
+    if (savedResults) {
+      const results = JSON.parse(savedResults);
+      setAssessmentResults(results);
+      
+      // Categorize skills based on scores
+      const levels = {
+        weak: [],
+        average: [],
+        strong: []
+      };
+      
+      results.forEach(result => {
+        const { skill, score } = result;
+        if (score < 50) {
+          levels.weak.push(skill);
+        } else if (score < 80) {
+          levels.average.push(skill);
+        } else {
+          levels.strong.push(skill);
+        }
+      });
+      
+      setSkillLevels(levels);
+      console.log("Skill levels categorized:", levels);
+    }
+    
+    // For backward compatibility
     if (weakSkills && weakSkills.length > 0) {
       generateRecommendations();
       console.log("Weak skills detected:", weakSkills);
     }
-  }, [weakSkills, generateRecommendations]);
+  }, [weakSkills]);
 
   // Load completed videos from localStorage
   useEffect(() => {
@@ -160,49 +195,120 @@ export default function VideoRecommendations({ weakSkills, onVideoComplete }) {
     setTimeout(() => {
       const recommendations = [];
       
-      weakSkills.forEach(skill => {
-        console.log("Looking for videos for skill:", skill);
-        
-        // Try exact match first
-        let skillVideos = videoDatabase[skill] || [];
-        
-        // If no videos found, try case-insensitive match
-        if (skillVideos.length === 0) {
-          const skillLower = skill.toLowerCase();
-          const databaseKeys = Object.keys(videoDatabase);
+      // Process videos for each skill level
+      const processSkillLevel = (skills, level) => {
+        skills.forEach(skill => {
+          console.log(`Looking for ${level} level videos for skill:`, skill);
           
-          for (const key of databaseKeys) {
-            if (key.toLowerCase() === skillLower) {
-              skillVideos = videoDatabase[key];
-              console.log("Found videos using case-insensitive match:", key);
-              break;
+          // Try exact match first
+          let skillVideos = videoDatabase[skill] || [];
+          
+          // If no videos found, try case-insensitive match
+          if (skillVideos.length === 0) {
+            const skillLower = skill.toLowerCase();
+            const databaseKeys = Object.keys(videoDatabase);
+            
+            for (const key of databaseKeys) {
+              if (key.toLowerCase() === skillLower) {
+                skillVideos = videoDatabase[key];
+                console.log("Found videos using case-insensitive match:", key);
+                break;
+              }
             }
           }
-        }
-        
-        // If still no videos found, create a generic recommendation
-        if (skillVideos.length === 0) {
-          console.log("No predefined videos found, creating generic recommendation for:", skill);
-          skillVideos = [{
-            id: `${skill.toLowerCase().replace(/\s+/g, '-')}-1`,
-            title: `${skill} Tutorial for Beginners`,
-            description: `Learn ${skill} fundamentals and best practices`,
-            url: `https://www.youtube.com/results?search_query=${encodeURIComponent(skill)}+tutorial+beginner`,
-            duration: "Varies",
-            skill: skill,
-            difficulty: "beginner"
-          }];
-        }
-        
-        console.log("Found videos:", skillVideos.length);
-        recommendations.push(...skillVideos);
-      });
+          
+          // If still no videos found, create a generic recommendation
+          if (skillVideos.length === 0) {
+            console.log(`No predefined videos found, creating generic ${level} recommendation for:`, skill);
+            
+            // Customize video based on skill level
+            let videoParams = {};
+            
+            if (level === 'weak') {
+              videoParams = {
+                id: `${skill.toLowerCase().replace(/\s+/g, '-')}-weak`,
+                title: `${skill} Comprehensive Tutorial`,
+                description: `In-depth ${skill} tutorial covering fundamentals and advanced concepts`,
+                url: `https://www.youtube.com/results?search_query=${encodeURIComponent(skill)}+comprehensive+tutorial`,
+                duration: "Long (2+ hours)",
+                skill: skill,
+                difficulty: "beginner-to-intermediate",
+                level: "weak"
+              };
+            } else if (level === 'average') {
+              videoParams = {
+                id: `${skill.toLowerCase().replace(/\s+/g, '-')}-avg`,
+                title: `${skill} Intermediate Concepts`,
+                description: `Strengthen your ${skill} knowledge with these intermediate concepts`,
+                url: `https://www.youtube.com/results?search_query=${encodeURIComponent(skill)}+intermediate+tutorial`,
+                duration: "Medium (1-2 hours)",
+                skill: skill,
+                difficulty: "intermediate",
+                level: "average"
+              };
+            } else { // strong
+              videoParams = {
+                id: `${skill.toLowerCase().replace(/\s+/g, '-')}-strong`,
+                title: `${skill} Advanced Tips & Tricks`,
+                description: `Quick tips to take your ${skill} expertise to the next level`,
+                url: `https://www.youtube.com/results?search_query=${encodeURIComponent(skill)}+advanced+tips+tricks`,
+                duration: "Short (15-30 min)",
+                skill: skill,
+                difficulty: "advanced",
+                level: "strong"
+              };
+            }
+            
+            skillVideos = [videoParams];
+          } else {
+            // Filter existing videos based on skill level
+            if (level === 'weak') {
+              // For weak skills, prefer longer, beginner-friendly videos
+              skillVideos = skillVideos
+                .filter(v => v.difficulty === "beginner" || v.difficulty === "intermediate")
+                .map(v => ({ ...v, level: "weak" }));
+            } else if (level === 'average') {
+              // For average skills, prefer intermediate videos
+              skillVideos = skillVideos
+                .filter(v => v.difficulty === "intermediate")
+                .map(v => ({ ...v, level: "average" }));
+            } else { // strong
+              // For strong skills, prefer advanced, shorter videos
+              skillVideos = skillVideos
+                .filter(v => v.difficulty === "advanced")
+                .map(v => ({ ...v, level: "strong" }));
+            }
+          }
+          
+          console.log(`Found ${level} videos:`, skillVideos.length);
+          recommendations.push(...skillVideos);
+        });
+      };
+      
+      // Process each skill level with appropriate video recommendations
+      // For weak skills, recommend longer, comprehensive videos
+      if (skillLevels.weak.length > 0) {
+        processSkillLevel(skillLevels.weak, 'weak');
+      } else if (weakSkills && weakSkills.length > 0) {
+        // Backward compatibility
+        processSkillLevel(weakSkills, 'weak');
+      }
+      
+      // For average skills, recommend medium-length videos
+      if (skillLevels.average.length > 0) {
+        processSkillLevel(skillLevels.average, 'average');
+      }
+      
+      // For strong skills, recommend short, advanced videos
+      if (skillLevels.strong.length > 0) {
+        processSkillLevel(skillLevels.strong, 'strong');
+      }
       
       console.log("Total recommended videos:", recommendations.length);
       setRecommendedVideos(recommendations);
       setLoading(false);
     }, 1000);
-  }, [weakSkills, videoDatabase]);
+  }, [weakSkills, skillLevels, videoDatabase]);
 
   const markVideoComplete = (videoId) => {
     const video = recommendedVideos.find(v => v.id === videoId);
@@ -264,73 +370,306 @@ export default function VideoRecommendations({ weakSkills, onVideoComplete }) {
         </div>
       </div>
 
-      {/* Video List */}
-      <div className="space-y-4">
-        {recommendedVideos.map((video) => {
-          const isCompleted = completedVideos.find(v => v.id === video.id);
-          
-          return (
-            <div 
-              key={video.id} 
-              className={`border rounded-lg p-4 transition-all duration-200 ${
-                isCompleted 
-                  ? 'border-green-200 bg-green-50' 
-                  : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h4 className="font-semibold text-gray-800">{video.title}</h4>
-                    {isCompleted && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        ✓ Completed
-                      </span>
-                    )}
-                  </div>
-                  
-                  <p className="text-gray-600 text-sm mb-3">{video.description}</p>
-                  
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span className="flex items-center">
-                      <span className="mr-1">🎯</span>
-                      {video.skill}
-                    </span>
-                    <span className="flex items-center">
-                      <span className="mr-1">⏱️</span>
-                      {video.duration}
-                    </span>
-                    <span className="flex items-center">
-                      <span className="mr-1">📊</span>
-                      {video.difficulty}
-                    </span>
-                  </div>
-                </div>
+      {/* Skill Level Headers */}
+      {skillLevels.weak.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-red-700 mb-2">🔍 Focus Areas (Weak Skills)</h3>
+          <p className="text-sm text-gray-600 mb-4">These are areas where you should focus your learning. We recommend longer, comprehensive videos to build a strong foundation.</p>
+          <div className="space-y-4">
+            {recommendedVideos
+              .filter(video => video.level === 'weak')
+              .map((video) => {
+                const isCompleted = completedVideos.find(v => v.id === video.id);
                 
-                <div className="flex flex-col gap-2 ml-4">
-                  <a
-                    href={video.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                return (
+                  <div 
+                    key={video.id} 
+                    className={`border-l-4 border-l-red-500 border rounded-lg p-4 transition-all duration-200 ${
+                      isCompleted 
+                        ? 'border-green-200 bg-green-50' 
+                        : 'border-gray-200 hover:border-red-300 hover:shadow-md'
+                    }`}
                   >
-                    Watch Video
-                  </a>
-                  
-                  {!isCompleted && (
-                    <button
-                      onClick={() => markVideoComplete(video.id)}
-                      className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                    >
-                      Mark Complete
-                    </button>
-                  )}
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold text-gray-800">{video.title}</h4>
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            Priority
+                          </span>
+                          {isCompleted && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              ✓ Completed
+                            </span>
+                          )}
+                        </div>
+                        
+                        <p className="text-gray-600 text-sm mb-3">{video.description}</p>
+                        
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span className="flex items-center">
+                            <span className="mr-1">🎯</span>
+                            {video.skill}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">⏱️</span>
+                            {video.duration}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">📊</span>
+                            {video.difficulty}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2 ml-4">
+                        <a
+                          href={video.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+                        >
+                          Watch Video
+                        </a>
+                        
+                        {!isCompleted && (
+                          <button
+                            onClick={() => markVideoComplete(video.id)}
+                            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                          >
+                            Mark Complete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+      
+      {skillLevels.average.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-yellow-700 mb-2">🔄 Improvement Areas (Average Skills)</h3>
+          <p className="text-sm text-gray-600 mb-4">You have a good foundation in these skills. These videos will help you strengthen your knowledge.</p>
+          <div className="space-y-4">
+            {recommendedVideos
+              .filter(video => video.level === 'average')
+              .map((video) => {
+                const isCompleted = completedVideos.find(v => v.id === video.id);
+                
+                return (
+                  <div 
+                    key={video.id} 
+                    className={`border-l-4 border-l-yellow-500 border rounded-lg p-4 transition-all duration-200 ${
+                      isCompleted 
+                        ? 'border-green-200 bg-green-50' 
+                        : 'border-gray-200 hover:border-yellow-300 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold text-gray-800">{video.title}</h4>
+                          {isCompleted && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              ✓ Completed
+                            </span>
+                          )}
+                        </div>
+                        
+                        <p className="text-gray-600 text-sm mb-3">{video.description}</p>
+                        
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span className="flex items-center">
+                            <span className="mr-1">🎯</span>
+                            {video.skill}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">⏱️</span>
+                            {video.duration}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">📊</span>
+                            {video.difficulty}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2 ml-4">
+                        <a
+                          href={video.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
+                        >
+                          Watch Video
+                        </a>
+                        
+                        {!isCompleted && (
+                          <button
+                            onClick={() => markVideoComplete(video.id)}
+                            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                          >
+                            Mark Complete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+      
+      {skillLevels.strong.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold text-green-700 mb-2">✅ Strong Skills</h3>
+          <p className="text-sm text-gray-600 mb-4">You're already proficient in these areas. These short videos will help you master advanced concepts.</p>
+          <div className="space-y-4">
+            {recommendedVideos
+              .filter(video => video.level === 'strong')
+              .map((video) => {
+                const isCompleted = completedVideos.find(v => v.id === video.id);
+                
+                return (
+                  <div 
+                    key={video.id} 
+                    className={`border-l-4 border-l-green-500 border rounded-lg p-4 transition-all duration-200 ${
+                      isCompleted 
+                        ? 'border-green-200 bg-green-50' 
+                        : 'border-gray-200 hover:border-green-300 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-semibold text-gray-800">{video.title}</h4>
+                          {isCompleted && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              ✓ Completed
+                            </span>
+                          )}
+                        </div>
+                        
+                        <p className="text-gray-600 text-sm mb-3">{video.description}</p>
+                        
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span className="flex items-center">
+                            <span className="mr-1">🎯</span>
+                            {video.skill}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">⏱️</span>
+                            {video.duration}
+                          </span>
+                          <span className="flex items-center">
+                            <span className="mr-1">📊</span>
+                            {video.difficulty}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2 ml-4">
+                        <a
+                          href={video.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                        >
+                          Watch Video
+                        </a>
+                        
+                        {!isCompleted && (
+                          <button
+                            onClick={() => markVideoComplete(video.id)}
+                            className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                          >
+                            Mark Complete
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+      
+      {/* For backward compatibility - videos without level classification */}
+      {recommendedVideos.filter(v => !v.level).length > 0 && (
+        <div className="space-y-4">
+          {recommendedVideos
+            .filter(video => !video.level)
+            .map((video) => {
+              const isCompleted = completedVideos.find(v => v.id === video.id);
+              
+              return (
+                <div 
+                  key={video.id} 
+                  className={`border rounded-lg p-4 transition-all duration-200 ${
+                    isCompleted 
+                      ? 'border-green-200 bg-green-50' 
+                      : 'border-gray-200 hover:border-blue-300 hover:shadow-md'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h4 className="font-semibold text-gray-800">{video.title}</h4>
+                        {isCompleted && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            ✓ Completed
+                          </span>
+                        )}
+                      </div>
+                      
+                      <p className="text-gray-600 text-sm mb-3">{video.description}</p>
+                      
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span className="flex items-center">
+                          <span className="mr-1">🎯</span>
+                          {video.skill}
+                        </span>
+                        <span className="flex items-center">
+                          <span className="mr-1">⏱️</span>
+                          {video.duration}
+                        </span>
+                        <span className="flex items-center">
+                          <span className="mr-1">📊</span>
+                          {video.difficulty}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col gap-2 ml-4">
+                      <a
+                        href={video.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                      >
+                        Watch Video
+                      </a>
+                      
+                      {!isCompleted && (
+                        <button
+                          onClick={() => markVideoComplete(video.id)}
+                          className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                        >
+                          Mark Complete
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+        </div>
+      )}
 
       {recommendedVideos.length === 0 && (
         <div className="text-center py-8">
