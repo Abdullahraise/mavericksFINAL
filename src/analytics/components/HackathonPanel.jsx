@@ -35,29 +35,29 @@ const HackathonPanel = () => {
       } else {
         // If no real data exists, use demo data
         setHackathons([
-    {
-      id: 1,
-      name: "JavaScript Algorithms Challenge",
-      date: "August 15, 2025",
-      status: "Active",
-      participants: 120,
-    },
-    {
-      id: 2,
-      name: "React UI/UX Hackathon",
-      date: "September 1, 2025",
-      status: "Upcoming",
-      participants: 85,
-    },
-    {
-      id: 3,
-      name: "Node.js Backend Battle",
-      date: "July 20, 2025",
-      status: "Completed",
-      participants: 95,
-    },
-  ];
-
+          {
+            id: 1,
+            name: "JavaScript Algorithms Challenge",
+            date: "August 15, 2025",
+            status: "Active",
+            participants: 120,
+          },
+          {
+            id: 2,
+            name: "React UI/UX Hackathon",
+            date: "September 1, 2025",
+            status: "Upcoming",
+            participants: 85,
+          },
+          {
+            id: 3,
+            name: "Node.js Backend Battle",
+            date: "July 20, 2025",
+            status: "Completed",
+            participants: 95,
+          },
+        ]);
+      }
     } catch (err) {
       console.error('Error fetching hackathons:', err);
       setError('Failed to load hackathon data');
@@ -91,7 +91,8 @@ const HackathonPanel = () => {
   };
   
   return (
-    <div className="metrics-card">
+    <>
+      <div className="metrics-card">
       <h3 className="metrics-title">Hackathon Management</h3>
       <p className="metrics-subtitle">
         Overview of active, upcoming, and completed hackathons.
@@ -119,37 +120,39 @@ const HackathonPanel = () => {
       {!loading && !error && (
         <div className="hackathon-list">
         {hackathons.map((hackathon) => (
-          <div key={hackathon.id} className="hackathon-item">
-            <div className="hackathon-info">
-              <span className="hackathon-name">{hackathon.name}</span>
-              <span className="hackathon-date">{hackathon.date}</span>
-            </div>
-            <div className="hackathon-status-participants">
-              <span
-                className={`hackathon-status status-${hackathon.status.toLowerCase()}`}
-              >
-                {hackathon.status}
-              </span>
-              <span className="hackathon-participants">
-                {hackathon.participants} Participants
-              </span>
-            </div>
-            <div className="hackathon-actions">
-              {hackathon.status === "Active" && (
-                <button className="hackathon-action-btn join-btn">Join</button>
-              )}
-              {hackathon.status === "Upcoming" && (
-                <button className="hackathon-action-btn view-details-btn">
-                  View Details
-                </button>
-              )}
-              {hackathon.status === "Completed" && (
-                <button className="hackathon-action-btn view-results-btn">
-                  View Results
-                </button>
-              )}
-            </div>
-          </div>
+            <>
+              <div key={hackathon.id} className="hackathon-item">
+                <div className="hackathon-info">
+                  <span className="hackathon-name">{hackathon.name}</span>
+                  <span className="hackathon-date">{hackathon.date}</span>
+                </div>
+                <div className="hackathon-status-participants">
+                  <span
+                    className={`hackathon-status status-${hackathon.status.toLowerCase()}`}
+                  >
+                    {hackathon.status}
+                  </span>
+                  <span className="hackathon-participants">
+                    {hackathon.participants} Participants
+                  </span>
+                </div>
+                <div className="hackathon-actions">
+                  {hackathon.status === "Active" && (
+                    <button className="hackathon-action-btn join-btn">Join</button>
+                  )}
+                  {hackathon.status === "Upcoming" && (
+                    <button className="hackathon-action-btn view-details-btn">
+                      View Details
+                    </button>
+                  )}
+                  {hackathon.status === "Completed" && (
+                    <button className="hackathon-action-btn view-results-btn">
+                      View Results
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
         ))}
       </div>
     </div>
